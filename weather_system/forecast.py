@@ -10,6 +10,7 @@ from .config import MODELS, RAIN_THRESHOLD_MM
 from .correction import LocationCorrector
 from .data_sources import fetch_convective, fetch_ensemble, fetch_forecast
 from .ensemble import blend, spread
+from .net import NeedClientFetch, gather
 from .verification import accuracy_by_lead, report
 
 WEATHER_TEXT = {
@@ -95,8 +96,23 @@ def _mean_direction(speed: pd.DataFrame, direction: pd.DataFrame) -> pd.Series:
 
 def build_forecast(lat: float, lon: float, name: str = "", tz: str = "auto",
                    country_code: str = "", admin_names: list[str] | None = None, log=print) -> dict:
-    corrector = LocationCorrector(lat, lon).load_or_train(tz, log=log)
-    fc = fetch_forecast(lat, lon, tz)
+    def optional(fn):
+        # 系集與對流資料拿不到時主預報照常產生；但需要瀏覽器代抓時要一起回報
+        def run():
+            try:
+                return fn()
+            except NeedClientFetch:
+                raise
+            except Exception:
+                return None
+        return run
+
+    # 先一次收集所有需要下載的資料，若伺服器額度被擋，瀏覽器只要代抓一輪
+    corrector, fc, _, _ = gather(
+        lambda: LocationCorrector(lat, lon).load_or_train(tz, log=log),
+        lambda: fetch_forecast(lat, lon, tz),
+        optional(lambda: fetch_ensemble(lat, lon, tz)),
+        optional(lambda: fetch_convective(lat, lon, tz)))
     weights = corrector.weights
 
     # ---------- 每日：主要變數用機器學習修正，其他變數用相關的權重融合

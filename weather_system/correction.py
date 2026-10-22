@@ -24,6 +24,7 @@ from .config import (
 )
 from .data_sources import fetch_observations, fetch_previous_runs_daily, training_window
 from .ensemble import blend, skill_weights
+from .net import gather
 from .stations import find_station_obs
 
 VERSION = 2
@@ -179,8 +180,8 @@ class LocationCorrector:
     def _train(self, tz: str, log) -> "LocationCorrector":
         start, end = training_window(TRAIN_DAYS, OBS_LAG_DAYS)
         log(f"下載 {start} ~ {end} 各模式前一天的預報與實際觀測…")
-        fc = fetch_previous_runs_daily(self.lat, self.lon, start, end, lead=1, tz=tz)
-        obs = fetch_observations(self.lat, self.lon, start, end, tz)
+        fc, obs = gather(lambda: fetch_previous_runs_daily(self.lat, self.lon, start, end, lead=1, tz=tz),
+                         lambda: fetch_observations(self.lat, self.lon, start, end, tz))
         truth_source = {v: "era5" for v in DAILY_TARGETS}
         station, st_obs = find_station_obs(self.lat, self.lon, start, end, log=log)
         if station:
@@ -217,11 +218,10 @@ class LocationCorrector:
             f"（{d_c[0].date()} ~ {d_c[-1].date()}）")
 
         # 考卷期另外下載第 2~7 天前的預報
-        leads_fc = {1: fc}
-        for lead in VERIFY_LEADS:
-            if lead != 1:
-                leads_fc[lead] = fetch_previous_runs_daily(
-                    self.lat, self.lon, d_c[0].date(), d_c[-1].date(), lead=lead, tz=tz)
+        other = [lead for lead in VERIFY_LEADS if lead != 1]
+        fetched = gather(*[(lambda L=lead: fetch_previous_runs_daily(
+            self.lat, self.lon, d_c[0].date(), d_c[-1].date(), lead=L, tz=tz)) for lead in other])
+        leads_fc = {1: fc, **dict(zip(other, fetched))}
 
         state = {"version": VERSION, "trained_at": datetime.now(timezone.utc).isoformat(),
                  "lat": self.lat, "lon": self.lon, "models": models,

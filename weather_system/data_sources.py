@@ -9,7 +9,7 @@ import pandas as pd
 from .config import (
     CONVECTIVE_VARS, DAILY_EXTRA, DAILY_TARGETS, FORECAST_DAYS, HOURLY_VARS, MODELS,
 )
-from .net import get_json
+from .net import NeedClientFetch, get_json
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -42,11 +42,17 @@ def geocode(query: str, count: int = 8) -> list[dict]:
         variants, lang = [q], "en"
 
     def search(v):
-        return get_json(GEOCODE_URL, {"name": v, "count": count, "language": lang, "format": "json"},
-                        ttl=86400 * 7).get("results") or []
+        try:
+            return get_json(GEOCODE_URL, {"name": v, "count": count, "language": lang, "format": "json"},
+                            ttl=86400 * 7).get("results") or []
+        except NeedClientFetch as e:
+            return e
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         batches = list(pool.map(search, variants))
+    need = [s for b in batches if isinstance(b, NeedClientFetch) for s in b.specs]
+    if need:
+        raise NeedClientFetch(need)
     seen, results = set(), []
     for r in (r for batch in batches for r in batch):
         key = (r.get("name"), round(r["latitude"], 2), round(r["longitude"], 2))
@@ -178,12 +184,18 @@ def fetch_previous_runs_daily(lat: float, lon: float, start: date, end: date, le
                 "start_date": start.isoformat(), "end_date": end.isoformat(),
                 "models": m, "hourly": ",".join(names.values()), "wind_speed_unit": "kmh",
             }, ttl=86400, timeout=180)
+        except NeedClientFetch as e:
+            return e
         except Exception:
             return {}
         return {v: _model_frame(data["hourly"], n, [m]) for v, n in names.items()}
 
     with ThreadPoolExecutor(max_workers=2) as pool:  # Open-Meteo 限制同時連線數
-        parts = [p for p in pool.map(one_model, MODELS) if p]
+        results = list(pool.map(one_model, MODELS))
+    need = [s for r in results if isinstance(r, NeedClientFetch) for s in r.specs]
+    if need:  # 一次把 7 個模式都交給瀏覽器代抓
+        raise NeedClientFetch(need)
+    parts = [p for p in results if p]
     if not parts:
         raise RuntimeError("歷次預報資料下載失敗")
     t, p, w = (pd.concat([part[v] for part in parts], axis=1) for v in names)

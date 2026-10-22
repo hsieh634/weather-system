@@ -49,7 +49,7 @@ document.addEventListener("click", (e) => { if (!e.target.closest(".search")) hi
 
 async function lookup(v) {
   try {
-    const r = await fetch(`/api/geocode?q=${encodeURIComponent(v)}`);
+    const r = await apiFetch(`/api/geocode?q=${encodeURIComponent(v)}`);
     suggestions = r.ok ? await r.json() : [];
   } catch { suggestions = []; }
   suggestIdx = suggestions.length ? 0 : -1;
@@ -98,7 +98,9 @@ async function load(p) {
   const tick = setInterval(() => { i = Math.min(i + 1, msgs.length - 1); $("#loading-msg").textContent = msgs[i]; }, 9000);
   try {
     const params = new URLSearchParams({ lat: p.lat, lon: p.lon, name: p.name, tz: p.tz || "auto", cc: p.cc || "", admin: p.admin || "" });
-    const r = await fetch(`/api/forecast?${params}`);
+    const r = await apiFetch(`/api/forecast?${params}`, {}, (round, n) => {
+      $("#loading-msg").textContent = `伺服器的資料額度已滿，改由你的瀏覽器下載 ${n} 筆資料（第 ${round} 輪）…`;
+    });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `伺服器錯誤 ${r.status}`);
     data = await r.json();
     selectedDay = 0;

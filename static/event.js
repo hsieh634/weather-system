@@ -23,7 +23,7 @@ const TaiwanEvent = (() => {
 
   async function load() {
     try {
-      const r = await fetch("/api/event/taiwan");
+      const r = await apiFetch("/api/event/taiwan");
       if (!r.ok) return;
       ev = await r.json();
     } catch { return; }

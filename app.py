@@ -6,19 +6,43 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 
 from weather_system import enso, maps, tropical, typhoon_event
 from weather_system.correction import LocationCorrector
 from weather_system.data_sources import geocode
 from weather_system.forecast import build_forecast
+from weather_system.net import NeedClientFetch, accept_relay
 from weather_system.verification import report
 
 STATIC = Path(__file__).parent / "static"
 app = FastAPI(title="全球氣象預測系統")
 app.add_middleware(GZipMiddleware, minimum_size=2000)
 _locks: dict[tuple, threading.Lock] = defaultdict(threading.Lock)  # 同一地點同時只訓練一次
+
+
+@app.exception_handler(NeedClientFetch)
+def _need_client_fetch(request, exc: NeedClientFetch):
+    """伺服器的資料額度被擋：回傳 409 與要下載的請求，讓瀏覽器代抓後再試。"""
+    return JSONResponse(status_code=409, content={"need": exc.specs})
+
+
+class RelayItem(BaseModel):
+    id: str
+    data: dict | list
+
+
+class RelayBody(BaseModel):
+    results: list[RelayItem]
+
+
+@app.post("/api/relay")
+def api_relay(body: RelayBody):
+    """收下瀏覽器代為下載的 Open-Meteo 資料。"""
+    ok = sum(accept_relay(r.id, r.data) for r in body.results[:120])
+    return {"accepted": ok}
 
 
 def _log(msg):
@@ -33,6 +57,8 @@ def _key(lat, lon):
 def api_geocode(q: str = Query(..., min_length=1)):
     try:
         return geocode(q)
+    except NeedClientFetch:
+        raise
     except Exception as e:
         raise HTTPException(502, f"地點搜尋失敗：{e}")
 
@@ -43,6 +69,8 @@ def api_forecast(lat: float, lon: float, name: str = "", tz: str = "auto",
     with _locks[_key(lat, lon)]:
         try:
             return build_forecast(lat, lon, name, tz, cc, [a for a in admin.split("|") if a], log=_log)
+        except NeedClientFetch:
+            raise
         except Exception as e:
             raise HTTPException(502, f"預報產生失敗：{e}")
 
@@ -67,6 +95,8 @@ def api_retrain(lat: float, lon: float, tz: str = "auto"):
 def api_map_grid(lat: float, lon: float):
     try:
         return maps.grid_forecast(lat, lon)
+    except NeedClientFetch:
+        raise
     except Exception as e:
         raise HTTPException(502, f"地圖資料取得失敗：{e}")
 
@@ -75,6 +105,8 @@ def api_map_grid(lat: float, lon: float):
 def api_map_cyclones():
     try:
         return maps.cyclone_tracks()
+    except NeedClientFetch:
+        raise
     except Exception as e:
         raise HTTPException(502, f"颱風路徑取得失敗：{e}")
 
@@ -83,6 +115,8 @@ def api_map_cyclones():
 def api_event_taiwan():
     try:
         return typhoon_event.taiwan_event()
+    except NeedClientFetch:
+        raise
     except Exception as e:
         raise HTTPException(502, f"颱風事件資料取得失敗：{e}")
 

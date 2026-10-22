@@ -390,7 +390,7 @@ const WeatherMap = (() => {
     loadingKey = key;
     root.querySelector(".wm-loading").hidden = false;
     try {
-      const r = await fetch(`/api/map/grid?lat=${lat.toFixed(2)}&lon=${lng.toFixed(2)}`);
+      const r = await apiFetch(`/api/map/grid?lat=${lat.toFixed(2)}&lon=${lng.toFixed(2)}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
       const g = await r.json();
       const firstLoad = !grid;
