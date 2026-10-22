@@ -76,12 +76,12 @@ const TaiwanEvent = (() => {
 
   async function initMap() {
     map = L.map("evd-map", { zoomSnap: 0.25, attributionControl: true, scrollWheelZoom: false });
-    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { attribution: "底圖 © Esri", maxNativeZoom: 16 }).addTo(map);
+    if (!window.WX_STATIC) L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", { attribution: "底圖 © Esri", maxNativeZoom: 16 }).addTo(map);
     map.fitBounds([[21.85, 118.2], [26.4, 122.1]]);
     map.on("zoomend", () => ev && drawLabels());
     if (!geo) {
       try {
-        const topo = await (await fetch("https://cdn.jsdelivr.net/npm/taiwan-atlas@1.0.1/counties-10t.json")).json();
+        const topo = await (await fetch(window.WX_STATIC ? "data/taiwan-counties.json" : "https://cdn.jsdelivr.net/npm/taiwan-atlas@1.0.1/counties-10t.json")).json();
         geo = topojson.feature(topo, topo.objects.counties);
       } catch { geo = null; }
     }

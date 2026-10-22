@@ -4,3 +4,4 @@ __pycache__/
 cache/
 trained_models/
 .claude/
+artifact_build/

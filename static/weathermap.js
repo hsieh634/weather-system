@@ -11,6 +11,13 @@ const WeatherMap = (() => {
     humidity: { name: "濕度", unit: "%", digits: 0, stops: [[0, "#a0522d"], [25, "#d2a05a"], [45, "#e8dc8a"], [65, "#8fd19e"], [80, "#3fa7c9"], [95, "#2251a8"], [100, "#1a2f7a"]] },
     radar: { name: "雷達", unit: "實測回波", radar: true },
   };
+  if (window.WX_STATIC) delete LAYERS.radar;  // 離線版無法即時取得雷達圖
+  // 離線版沒有底圖服務，自行標示主要城市
+  const CITIES = [["台北", 25.04, 121.56], ["台中", 24.15, 120.68], ["台南", 22.99, 120.21], ["高雄", 22.62, 120.31],
+    ["花蓮", 23.98, 121.6], ["台東", 22.76, 121.14], ["宜蘭", 24.75, 121.75], ["澎湖", 23.57, 119.58], ["金門", 24.43, 118.32],
+    ["福州", 26.07, 119.3], ["廈門", 24.48, 118.09], ["上海", 31.23, 121.47], ["香港", 22.32, 114.17], ["廣州", 23.13, 113.26],
+    ["馬尼拉", 14.6, 120.98], ["那霸", 26.21, 127.68], ["石垣島", 24.34, 124.16], ["沖繩", 26.5, 128.0], ["東京", 35.68, 139.69],
+    ["首爾", 37.57, 126.98], ["溫州", 28.0, 120.67], ["汕頭", 23.35, 116.68], ["呂宋島", 16.5, 121.2], ["鹿兒島", 31.6, 130.56]];
   const DIRS = ["北", "東北", "東", "東南", "南", "西南", "西", "西北"];
   const ICON = { temp: "🌡", precip: "☔", wind: "💨", gust: "🌬", pressure: "◎", cloud: "☁", humidity: "💧", radar: "📡" };
   const PLAY = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>';
@@ -295,7 +302,7 @@ const WeatherMap = (() => {
 
   async function loadCyclones() {
     try {
-      const r = await fetch("/api/map/cyclones");
+      const r = await apiFetch("/api/map/cyclones");
       cyclones = r.ok ? await r.json() : [];
     } catch { cyclones = []; }
     drawStorms();
@@ -467,9 +474,17 @@ const WeatherMap = (() => {
     map.createPane("typhoon").style.zIndex = 360;
     map.createPane("storm").style.zIndex = 450;
     for (const p of ["field", "particles", "borders", "labels", "typhoon"]) map.getPane(p).style.pointerEvents = "none";
-    const esri = "https://server.arcgisonline.com/ArcGIS/rest/services/";
-    L.tileLayer(esri + "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", { attribution: "底圖 © Esri", maxNativeZoom: 16 }).addTo(map);
-    L.tileLayer(esri + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { pane: "labels", maxNativeZoom: 16, opacity: 0.95 }).addTo(map);
+    if (window.WX_STATIC) {
+      // 離線版：陸地由海岸線資料自行繪製，城市名稱用標籤
+      map.createPane("land").style.zIndex = 250;
+      CITIES.forEach(([n, la, lo]) => L.marker([la, lo], { pane: "labels", interactive: false,
+        icon: L.divIcon({ className: "wm-city", html: `<i></i><span>${n}</span>`, iconSize: [8, 8], iconAnchor: [4, 4] }) }).addTo(map));
+      map.attributionControl.addAttribution("海岸線 © Natural Earth");
+    } else {
+      const esri = "https://server.arcgisonline.com/ArcGIS/rest/services/";
+      L.tileLayer(esri + "Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", { attribution: "底圖 © Esri", maxNativeZoom: 16 }).addTo(map);
+      L.tileLayer(esri + "Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { pane: "labels", maxNativeZoom: 16, opacity: 0.95 }).addTo(map);
+    }
 
     fieldCanvas = L.DomUtil.create("canvas", "wm-canvas", map.getPane("field"));
     partCanvas = L.DomUtil.create("canvas", "wm-canvas", map.getPane("particles"));
@@ -508,7 +523,14 @@ const WeatherMap = (() => {
   async function loadCoastlines() {
     if (typeof topojson === "undefined") return;
     try {
-      const topo = await (await fetch("https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json")).json();
+      const src = window.WX_STATIC ? "data/world-50m.json" : "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json";
+      const topo = await (await fetch(src)).json();
+      if (window.WX_STATIC) {
+        L.geoJSON(topojson.feature(topo, topo.objects.countries), { pane: "land", interactive: false,
+          style: { stroke: false, fillColor: "#3a3f47", fillOpacity: 1 } }).addTo(map);
+        L.geoJSON(topojson.mesh(topo, topo.objects.countries, (a, b) => a !== b), { pane: "borders", interactive: false,
+          style: { color: "#111", weight: 0.8, opacity: 0.5, dashArray: "3 3" } }).addTo(map);
+      }
       // 國界與地名由 Esri 參考圖層提供，這裡補上海岸線讓陸地輪廓在色彩場上清楚可見
       const coast = topojson.mesh(topo, topo.objects.countries, (a, b) => a === b);
       L.geoJSON(coast, { pane: "borders", style: { color: "#1d1d1d", weight: 1, opacity: 0.6 }, interactive: false }).addTo(map);

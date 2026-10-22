@@ -77,6 +77,13 @@ $("#locate").addEventListener("click", () => {
     () => showError("無法取得位置，請確認瀏覽器已允許定位"));
 });
 
+// 離線版：快速按鈕改為預先計算好的地點
+if (window.WX_STATIC) {
+  QUICK.length = 0;
+  window.WX_STATIC.presets.forEach((p) => QUICK.push([p.name, p.latitude, p.longitude, p.timezone, p.country_code, p.admin1]));
+  $("#welcome p").textContent = "這個版本的預報都已預先算好（含機器學習修正與實測準確率），點選下方地點即可查看。";
+  q.placeholder = "搜尋預先計算的地點，例如：台北、高雄";
+}
 $("#quick").innerHTML = QUICK.map((c, i) => `<button data-i="${i}">${c[0]}</button>`).join("");
 $("#quick").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
   const [name, lat, lon, tz, cc, admin] = QUICK[+b.dataset.i];
@@ -577,4 +584,11 @@ function drawChart(id, sel, cfg) {
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => data && render());
 
 // 回到上次查詢的地點
-try { const last = JSON.parse(localStorage.getItem("wx:last") || "null"); if (last) { q.value = last.name; load(last); } } catch {}
+// 回到上次查詢的地點；離線版第一次開啟直接顯示第一個地點，頁面一打開就有內容
+let last = null;
+try { last = JSON.parse(localStorage.getItem("wx:last") || "null"); } catch {}
+if (!last && window.WX_STATIC) {
+  const p = window.WX_STATIC.presets[0];
+  last = { lat: p.latitude, lon: p.longitude, name: p.name, tz: p.timezone, cc: p.country_code, admin: p.admin1 };
+}
+if (last) { q.value = last.name; load(last); }

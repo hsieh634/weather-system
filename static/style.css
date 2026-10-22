@@ -318,3 +318,8 @@ ul.plain li { margin: 3px 0; }
 @keyframes wmty { to { transform: rotate(360deg); } }
 .wm-ty-label span { position: absolute; transform: translate(-50%, 14px); white-space: nowrap; background: rgba(14, 18, 28, .78); color: #fff; border-radius: 6px; padding: 1px 7px; font-size: 12px; }
 .wm-ty-label b { margin-right: 4px; }
+
+/* 離線版城市標籤 */
+.wm-city { position: relative; }
+.wm-city i { position: absolute; left: 1px; top: 1px; width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,.55); }
+.wm-city span { position: absolute; left: 10px; top: -6px; white-space: nowrap; color: #fff; font-size: 12px; font-weight: 600; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; }
