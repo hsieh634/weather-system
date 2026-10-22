@@ -1,0 +1,12 @@
+# Render 部署設定（Blueprint）：在 Render 選 New → Blueprint，選這個 GitHub 版本庫即可
+services:
+  - type: web
+    name: weather-system
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHONIOENCODING
+        value: utf-8

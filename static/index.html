@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全球氣象預測系統</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/static/style.css?v=17">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>全球氣象預測系統</h1>
+    <p>7 個全球模式融合 · 機器學習在地修正 · 實測驗證準確率</p>
+  </div>
+  <form id="search" class="search" autocomplete="off">
+    <input id="q" type="search" placeholder="輸入城市名稱或「緯度,經度」，例如：台北、Tokyo、25.03,121.56" aria-label="搜尋地點">
+    <button type="submit">查詢</button>
+    <button type="button" id="locate" title="使用我目前的位置">📍</button>
+    <ul id="suggest" class="suggest" hidden></ul>
+  </form>
+</header>
+
+<main id="main">
+  <section id="event-card" class="event-card" hidden></section>
+  <dialog id="event-dialog" class="event-dialog"></dialog>
+  <section id="welcome" class="card welcome">
+    <h2>開始使用</h2>
+    <p>在上方輸入任何地點。第一次查詢某個地點時，系統會下載該地約兩年的歷史預報與實際觀測，
+      訓練在地修正模型並計算真實準確率，大約需要 <b>30～90 秒</b>；之後 30 天內再查詢只要幾秒。</p>
+    <div class="quick" id="quick"></div>
+  </section>
+
+  <div id="loading" class="card loading" hidden>
+    <div class="spinner"></div>
+    <div><b id="loading-title">產生預報中…</b><p id="loading-msg"></p></div>
+  </div>
+  <div id="error" class="card error" hidden></div>
+
+  <div id="result" hidden>
+    <div id="banner"></div>
+
+    <section class="card map-card">
+      <div class="card-head">
+        <h2>天氣地圖</h2>
+        <span class="muted">按 ▶ 播放未來 7 天預報動畫 · 白色虛線為颱風預報路徑 · 拖曳時間軸可跳到任一時刻</span>
+      </div>
+      <div id="weathermap" class="weathermap"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card now" id="now"></div>
+      <div class="card" id="accuracy-card">
+        <h2>這個地點的實測準確率</h2>
+        <p class="muted" id="acc-sub"></p>
+        <div class="chart-box"><canvas id="acc-chart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>未來 24 小時</h2>
+      <div class="strip-wrap"><div class="strip" id="next24"></div></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>預測</h2>
+        <div class="daynav">
+          <select id="day-select" aria-label="選擇日期"></select>
+          <button id="day-prev" aria-label="前一天">‹</button>
+          <button id="day-next" aria-label="後一天">›</button>
+        </div>
+      </div>
+      <div class="strip-wrap"><div class="dayhead" id="days"></div></div>
+      <div class="strip-wrap"><div class="strip" id="day3h"></div></div>
+      <div id="day-detail" class="day-detail"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>每日趨勢</h2>
+        <div class="seg" id="meteo-tabs">
+          <button data-k="temp" class="on">溫度範圍</button>
+          <button data-k="precip">雨量與降雨機率</button>
+          <button data-k="gust">陣風與停班課門檻</button>
+        </div>
+      </div>
+      <div class="meteo-wrap" id="meteogram"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>劇烈天氣風險</h2>
+        <p class="muted">雷雨、冰雹、龍捲風、豪雨、強風、降雪、凍雨、高溫、低溫、濃霧</p>
+        <div id="hazards"></div>
+      </div>
+      <div class="card">
+        <h2>官方警報</h2>
+        <div id="alerts"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>颱風／颶風／熱帶氣旋</h2>
+        <span class="muted">全球即時監測（GDACS、NOAA 國家颶風中心）· 路徑與預報錐請看上方天氣地圖</span>
+      </div>
+      <div id="tc-list"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>聖嬰／反聖嬰（ENSO）</h2>
+        <div id="enso"></div>
+        <div class="chart-box"><canvas id="enso-chart"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>預報方法</h2>
+        <div id="method"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>詳細驗證成績</h2>
+      <div id="verify"></div>
+    </section>
+
+    <section class="card honest">
+      <h2>為什麼準確率不可能是 100%？</h2>
+      <p>大氣是「混沌系統」：初始狀態只要有極微小的測量誤差，誤差就會隨時間指數放大（蝴蝶效應）。
+        全世界的觀測站、衛星、探空氣球也無法量到每一立方公尺的空氣，因此任何預報系統——包括世界最強的 ECMWF——
+        都不可能 100% 準確。一般而言 1～3 天的溫度預報可以非常準，7 天後明顯下降，超過 10～14 天只剩下趨勢參考價值。</p>
+      <p>本系統的作法是不誇大：每個數字都附上「在這個地點、用過去真實資料考試」得到的準確率，讓你知道該相信到什麼程度。</p>
+    </section>
+  </div>
+</main>
+
+<footer class="foot">
+  資料來源：Open-Meteo（ECMWF、NOAA GFS、DWD ICON、JMA、Météo-France、加拿大 GEM、英國 UKMO）、ERA5 再分析、
+  NOAA GHCN 氣象站、GDACS、NOAA NHC、NOAA CPC、NWS／中央氣象署。重大災害請以當地官方氣象機關公告為準。
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-array@3.2.4/dist/d3-array.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-contour@4.0.2/dist/d3-contour.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="/static/weathermap.js?v=17"></script>
+<script src="/static/app.js?v=17"></script>
+<script src="/static/event.js?v=17"></script>
+</body>
+</html>
