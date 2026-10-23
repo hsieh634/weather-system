@@ -323,3 +323,19 @@ ul.plain li { margin: 3px 0; }
 .wm-city { position: relative; }
 .wm-city i { position: absolute; left: 1px; top: 1px; width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px rgba(0,0,0,.55); }
 .wm-city span { position: absolute; left: 10px; top: -6px; white-space: nowrap; color: #fff; font-size: 12px; font-weight: 600; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; }
+
+/* 縣市長風格與實際對比 */
+.evd-table small.mayor { display: block; color: var(--muted); font-size: 11px; }
+.mayor-box { margin: 8px 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg); display: grid; gap: 4px; }
+.mayor-box .muted { margin: 0; }
+.style-tag { margin-left: 8px; font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.mayor-box .cmp { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.evd-review { margin: 0 20px 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.evd-review summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.evd-review summary span { color: var(--muted); font-size: 13px; }
+.evd-review table { margin-top: 8px; }
+.evd-review i.ok { color: var(--ok); font-style: normal; font-weight: 800; }
+.evd-review i.ng { color: var(--lv3); font-style: normal; font-weight: 800; }
+.act { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+.act.off { background: var(--lv3-bg); color: var(--lv3); font-weight: 700; }
+@media (max-width: 760px) { .evd-review { margin: 0 12px 12px; } }

@@ -9,12 +9,15 @@
   實際是否停班停課由各縣市政府綜合判斷並公告，這裡只是依預報估計，不是官方決定。
 - 「災害程度」依風雨強度分 0~4 級。
 """
-from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
+from datetime import date, datetime, time, timedelta, timezone
 
 import numpy as np
 
 from .maps import cyclone_tracks
-from .net import post_json
+from .config import CACHE_DIR
+from .net import get_text, post_json
 from .stations import haversine_km
 
 ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
@@ -73,12 +76,19 @@ def taiwan_event(days: int = 4) -> dict:
         "daily": "wind_gusts_10m_max,wind_speed_10m_max,precipitation_sum",
         "models": "ecmwf_ifs025,gfs025", "forecast_days": days, "timezone": "Asia/Taipei",
     }, ttl=3600, timeout=120)
+    return build_event(data, datetime.now(TZ))
+
+
+def build_event(data, now: datetime, live: bool = True) -> dict:
+    """由系集資料算出各縣市災害程度與停班停課機率；live=False 時不抓官方公告（回測用）。"""
+    ids = list(COUNTIES)
     if isinstance(data, dict):
         data = [data]
     dates = data[0]["daily"]["time"]
-    today = datetime.now(TZ).date().isoformat()
+    today = now.date().isoformat()
 
     per_day = {d: [] for d in dates if d > today}
+    members = {d: {} for d in per_day}
     for cid, loc in zip(ids, data):
         name, lat, lon, mountain = COUNTIES[cid]
         blk = loc["daily"]
@@ -93,6 +103,7 @@ def taiwan_event(days: int = 4) -> dict:
             g, w, r = g[ok], w[ok], r[ok]
             if not len(g):
                 continue
+            members[d][cid] = {"g": g, "w": w, "r": r}
             by_wind = (w >= WIND_7) | (g >= GUST_10)
             by_rain = r >= RAIN_PLAIN
             med = lambda a: float(np.median(a))
@@ -127,6 +138,9 @@ def taiwan_event(days: int = 4) -> dict:
     except Exception:
         pass
 
+    style_report = _apply_dayoff_model(per_day, members)
+    review = _review(per_day, now, live)
+
     max_p = max((c["probability"] for cs in per_day.values() for c in cs), default=0)
     if storms:
         title, kind = f"颱風 {storms[0]['name']}", "typhoon"
@@ -140,12 +154,83 @@ def taiwan_event(days: int = 4) -> dict:
         "days": [{"date": d, "counties": sorted(cs, key=lambda c: -c["probability"])}
                  for d, cs in per_day.items() if cs],
         "criteria": CRITERIA,
+        "style_model": style_report,
+        "review": review,
         "notes": [
             "機率 = 82 組系集預報（ECMWF 51 + GFS 31）中達到參考標準的比例。",
             "代表點取各縣市政府附近平地；山區、沿海或離島局部可能更嚴重。",
             "全球模式格點約 25 km，強烈颱風的陣風常被低估，請同時參考中央氣象署警報。",
-            "此機率未經歷史停班停課紀錄校正，僅供參考。",
+            "「縣市長風格」以人事行政總處歷年公告校正，屬娛樂性質；實際仍以各縣市政府公告為準。",
         ],
         "official_link": "https://www.dgpa.gov.tw/typh/daily/nds.html",
         "updated": datetime.now(TZ).isoformat(timespec="minutes"),
     }
+
+
+# ---------------------------------------------------------------- 縣市長風格校正與實際結果對比
+HISTORY = CACHE_DIR / "pred_history.json"
+SEED_HISTORY = Path(__file__).parent / "data" / "pred_history_seed.json"  # 隨程式發佈的歷次預測（例：10/23）
+LIVE_URL = "https://www.dgpa.gov.tw/typh/daily/nds.html"
+
+
+def _apply_dayoff_model(per_day: dict, members: dict) -> dict | None:
+    from . import dayoff_model  # 延後載入，避免循環引用
+    model = dayoff_model.load()
+    if model is None:
+        return None
+    for d, cs in per_day.items():
+        if not members.get(d):
+            continue
+        preds = dayoff_model.predict_event(model, members[d], date.fromisoformat(d))
+        for c in cs:
+            pr = preds.get(c["id"])
+            if pr:
+                c.update({"p_weather": pr["p_weather"], "p_style": pr["p_style"], "mayor": pr["mayor"],
+                          "style": pr["style"]})
+    rep = model.report
+    return {"cv": rep["cv"], "samples": rep["samples"], "events": rep["events"], "period": rep["period"]}
+
+
+def official_status() -> dict[str, dict[str, str]]:
+    """人事行政總處即時公告 → {日期: {縣市 id: full/half/partial/normal}}"""
+    from .dayoff_history import classify, fetch_live, parse_snapshot
+    snap = parse_snapshot(fetch_live(LIVE_URL))
+    ref = date.fromisoformat(snap["ref_date"])
+    id_of = {v[0].replace("台", "臺"): k for k, v in COUNTIES.items()}
+    out: dict[str, dict[str, str]] = {}
+    for county, lines in snap["counties"].items():
+        for d, st in classify(lines, ref).items():
+            if county in id_of:
+                out.setdefault(d, {})[id_of[county]] = st
+    return out
+
+
+def _review(per_day: dict, now: datetime, live: bool) -> list[dict]:
+    """把公告前（前一天 22:00 以前）最後一次預測存起來，官方公布後拿來對比。"""
+    hist = json.loads(SEED_HISTORY.read_text(encoding="utf-8")) if SEED_HISTORY.exists() else {}
+    if HISTORY.exists():
+        hist.update(json.loads(HISTORY.read_text(encoding="utf-8")))
+    for d, cs in per_day.items():
+        deadline = datetime.combine(date.fromisoformat(d) - timedelta(days=1), time(22, 0), TZ)
+        if now < deadline and cs:
+            hist[d] = {"made_at": now.isoformat(timespec="minutes"),
+                       "counties": {c["id"]: {"rule": c["probability"], "style": c.get("p_style")} for c in cs}}
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    HISTORY.write_text(json.dumps(hist, ensure_ascii=False), encoding="utf-8")
+    if not live:
+        return []
+    try:
+        actual = official_status()
+    except Exception:
+        return []
+    out = []
+    for d, sts in sorted(actual.items()):
+        if d not in hist:
+            continue
+        rows = []
+        for cid, pr in hist[d]["counties"].items():
+            st = sts.get(cid, "normal")
+            rows.append({"id": cid, "name": COUNTIES[cid][0], "rule": pr["rule"], "style": pr.get("style"),
+                         "actual": st, "off": st in ("full", "half")})
+        out.append({"date": d, "made_at": hist[d]["made_at"], "counties": rows})
+    return out
